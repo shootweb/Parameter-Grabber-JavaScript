@@ -1,35 +1,20 @@
 /**
- * grabParams()
- * Collects likely user-controllable parameter names for XSS testing.
+ * grabParamsUI(options)
+ * Paste into the browser console and call:
+ *   grabParamsUI();               // show floating panel with results
+ *   grabParamsUI({copy:true});    // show panel and copy results to clipboard
  *
- * Usage:
- *   - paste into browser console and call:
- *       grabParams();              // prints results
- *       grabParams({copy:true});   // copies results to clipboard
- *
- * Behavior:
- *   - finds form inputs, hidden fields, anchors with query strings, inline JS patterns,
- *     event-handler attributes (onclick etc.), data-* attributes, and URL fragments
- *   - scores and deduplicates candidates and filters out common tracking params (utm_*, gclid, fbclid, _ga)
- *   - returns prioritized list of param objects: {name, exampleUrl, score, reasons}
+ * Fixes the invalid selector error and displays results on-screen.
  */
-(function globalGrabParams() {
+(function grabParamsUIwrap() {
   function defaultOptions() {
     return {
       blacklistPatterns: [
-        /^utm_/i,
-        /^fbclid$/i,
-        /^gclid$/i,
-        /^_ga/i,
-        /^_gid/i,
-        /^yclid$/i,
-        /^mc_cid$/i,
-        /^mc_eid$/i,
-        /^ref$/i, // sometimes noisy; adjust if you want "ref"
+        /^utm_/i, /^fbclid$/i, /^gclid$/i, /^_ga/i, /^_gid/i, /^yclid$/i, /^mc_cid$/i, /^mc_eid$/i
       ],
-      minScore: 1,   // only include params with score >= this
-      copyToClipboard: false,
-      maxResults: 200
+      minScore: 1,
+      maxResults: 200,
+      copy: false
     };
   }
 
@@ -39,7 +24,7 @@
 
   function addCandidate(map, name, exampleUrl, reason, deltaScore = 1) {
     if (!name) return;
-    name = name.trim();
+    name = String(name).trim();
     if (!name) return;
     const key = name;
     if (!map[key]) {
@@ -47,7 +32,6 @@
     }
     map[key].score += deltaScore;
     map[key].reasons.add(reason);
-    // update exampleUrl if this reason provides a stronger example
     if (exampleUrl && (!map[key].exampleUrl || exampleUrl.length < map[key].exampleUrl.length)) {
       map[key].exampleUrl = exampleUrl;
     }
@@ -56,42 +40,30 @@
   function extractQueryParamsFromUrl(url) {
     try {
       const u = new URL(url, document.baseURI);
-      const params = [];
-      for (const [k] of u.searchParams) params.push(k);
-      return params;
+      return Array.from(u.searchParams.keys());
     } catch (e) {
-      // fallback regex capture
-      const m = url.match(/[?&]([^=#]+)=/g);
+      const m = String(url).match(/[?&]([^=#]+)=/g);
       return m ? Array.from(new Set(m.map(x => x.replace(/^[?&]|=$/g, "")))) : [];
     }
   }
 
   function parseInlineJSForNames(scriptText) {
-    // heuristics: look for location.search, location.hash, new URLSearchParams(...).get('name'), regex for '?name=' or '["name"]'
     const names = new Set();
-
-    // common patterns: urlSearchParams.get('param')
     const reGet = /(?:get|has)\s*\(\s*['"]([a-zA-Z0-9_\-]+)['"]\s*\)/g;
     let m;
     while ((m = reGet.exec(scriptText))) names.add(m[1]);
-
-    // look for ['param'] or ["param"] after location or window or url
     const reBracket = /(?:location|window|\burl\b)[^"'`\]]*[\[\(]\s*['"]([a-zA-Z0-9_\-]+)['"]\s*[\]\)]/g;
     while ((m = reBracket.exec(scriptText))) names.add(m[1]);
-
-    // direct regex like /[?&]param=/ or "?param=" occurrences in strings
     const reQS = /[?&]([a-zA-Z0-9_\-]+)=/g;
     while ((m = reQS.exec(scriptText))) names.add(m[1]);
-
-    // assignments from split on '=' e.g. var p = qs['param']
     const reVar = /(?:var|let|const)?\s*[a-zA-Z0-9_\-]+\s*=\s*.*(?:qs|params|searchParams|query).*['"]([a-zA-Z0-9_\-]+)['"]/g;
     while ((m = reVar.exec(scriptText))) names.add(m[1]);
-
     return Array.from(names);
   }
 
   function inspectDOM() {
     const candidates = {};
+
     // 1) form elements and inputs
     document.querySelectorAll("form").forEach(form => {
       const action = form.getAttribute("action") || document.location.href;
@@ -99,11 +71,10 @@
       Array.from(form.elements || []).forEach(el => {
         const name = el.name || el.id || (el.getAttribute && el.getAttribute("data-name"));
         if (!name) return;
-        // Heuristic: input type
         const type = (el.type || "").toLowerCase();
         let score = 3;
         if (type === "hidden") score = 4;
-        if (type === "text" || type === "search" || type === "email" || type === "tel" || type === "password") score = 5;
+        if (["text","search","email","tel","password"].includes(type)) score = 5;
         if (el.matches && el.matches("select,textarea")) score = 4;
         addCandidate(candidates, name, `${actionBase}?${name}=`, `form:${form.name||form.id||'form'}`, score);
       });
@@ -113,39 +84,36 @@
     document.querySelectorAll("input,textarea,select").forEach(el => {
       const name = el.name || el.id || (el.getAttribute && el.getAttribute("data-name"));
       if (!name) return;
-      if (candidates[name]) return; // likely already added from form
-      let score = 3;
+      if (candidates[name]) return;
       const type = (el.type || "").toLowerCase();
-      if (type === "hidden") score = 3;
-      if (type === "text" || type === "search" || type === "email" || type === "password") score = 4;
-      addCandidate(candidates, name, `${location.origin}${location.pathname}?${name}=`, `input:${type}`, score);
+      let score = ["text","search","email","password"].includes(type) ? 4 : 3;
+      addCandidate(candidates, name, `${location.origin}${location.pathname}?${name}=`, `input:${type||'notype'}`, score);
     });
 
     // 3) anchors with query strings
     document.querySelectorAll("a[href]").forEach(a => {
-      const href = a.getAttribute("href");
-      if (!href) return;
-      const params = extractQueryParamsFromUrl(href);
-      params.forEach(p => addCandidate(candidates, p, href, `link:${a.textContent.trim().slice(0,20)}`, 2));
+      try {
+        const href = a.getAttribute("href");
+        if (!href) return;
+        const params = extractQueryParamsFromUrl(href);
+        params.forEach(p => addCandidate(candidates, p, href, `link:${(a.textContent||'').trim().slice(0,20)}`, 2));
+      } catch (e) {}
     });
 
-    // 4) elements with event handlers (onclick, onsubmit, onmouseover, etc.)
+    // 4) elements with event handlers
     const evAttrs = ["onclick","onchange","onsubmit","oninput","onfocus","onblur","onkeydown","onkeyup"];
     evAttrs.forEach(attr => {
       document.querySelectorAll("[" + attr + "]").forEach(el => {
         const text = (el.getAttribute(attr) || "");
-        // find query-like patterns in handler
         const found = parseInlineJSForNames(text);
         found.forEach(n => addCandidate(candidates, n, `${location.href.split('#')[0]}?${n}=`, `handler:${attr}`, 2));
       });
     });
 
-    // 5) data-* attributes (user-controllable in many cases)
-    document.querySelectorAll("[data-*]").forEach(() => {}); // no-op to satisfy older browsers
+    // 5) data-* attributes by iterating attributes (no invalid selector)
     Array.from(document.querySelectorAll("*")).forEach(el => {
       for (const attr of el.attributes) {
         if (attr && attr.name && attr.name.startsWith("data-")) {
-          // data-foo -> candidate 'foo'
           const pname = attr.name.slice(5);
           if (pname) addCandidate(candidates, pname, `${location.href.split('#')[0]}?${pname}=`, `data-attribute:${attr.name}`, 1);
         }
@@ -159,7 +127,7 @@
       names.forEach(n => addCandidate(candidates, n, `${location.href.split('#')[0]}?${n}=`, "inline-js", 2));
     });
 
-    // 7) external script URLs (try to parse param names in src)
+    // 7) external script src param parsing
     document.querySelectorAll("script[src]").forEach(s => {
       try {
         const src = s.getAttribute("src");
@@ -168,13 +136,13 @@
       } catch (e) {}
     });
 
-    // 8) meta tags (og: or meta[name=], sometimes contain redirect params)
+    // 8) meta[name] tags
     document.querySelectorAll("meta[name]").forEach(m => {
       const name = m.getAttribute("name");
       if (name) addCandidate(candidates, name, location.href, "meta", 0.5);
     });
 
-    // 9) fragment/hash parsing (#... param-like)
+    // 9) hash fragment
     if (location.hash && location.hash.includes("=")) {
       const parts = location.hash.replace(/^#/, "").split(/[&;]/);
       parts.forEach(part => {
@@ -197,44 +165,151 @@
       .filter(x => x.score >= options.minScore)
       .filter(x => !isBlacklisted(x.name, options.blacklistPatterns))
       .sort((a,b) => b.score - a.score || a.name.localeCompare(b.name));
-
-    // dedupe by name (already keyed) and limit results
     return out.slice(0, options.maxResults);
   }
 
-  // primary entry point
-  window.grabParams = function grabParams(userOptions = {}) {
-    const options = Object.assign(defaultOptions(), userOptions);
-    const map = inspectDOM();
-    const results = finalizeCandidates(map, options);
+  // UI helpers
+  function createPanel() {
+    // remove existing
+    const existing = document.getElementById("grabParamsPanel");
+    if (existing) existing.remove();
 
-    // Pretty print
-    if (!results.length) {
-      console.info("grabParams: no candidate params found with current heuristics");
-      return results;
-    }
+    const panel = document.createElement("div");
+    panel.id = "grabParamsPanel";
+    panel.style.position = "fixed";
+    panel.style.right = "12px";
+    panel.style.top = "12px";
+    panel.style.width = "520px";
+    panel.style.maxHeight = "70vh";
+    panel.style.overflow = "auto";
+    panel.style.zIndex = 2147483647;
+    panel.style.background = "rgba(255,255,255,0.97)";
+    panel.style.border = "1px solid rgba(0,0,0,0.15)";
+    panel.style.boxShadow = "0 6px 18px rgba(0,0,0,0.2)";
+    panel.style.fontFamily = "Arial, sans-serif";
+    panel.style.fontSize = "13px";
+    panel.style.color = "#111";
+    panel.style.padding = "8px";
+    panel.style.borderRadius = "6px";
 
-    console.groupCollapsed(`grabParams: ${results.length} candidates (top 25 shown)`);
-    results.slice(0,25).forEach(r => {
-      console.log(`%c${r.name}`, "font-weight:bold;color:#0b66c3", ` score:${r.score} reasons:${r.reasons.join(", ")}`);
-      console.log("  example:", r.exampleUrl);
+    const header = document.createElement("div");
+    header.style.display = "flex";
+    header.style.justifyContent = "space-between";
+    header.style.alignItems = "center";
+    header.style.marginBottom = "8px";
+
+    const title = document.createElement("div");
+    title.textContent = "grabParams results";
+    title.style.fontWeight = "600";
+    header.appendChild(title);
+
+    const btns = document.createElement("div");
+
+    const copyBtn = document.createElement("button");
+    copyBtn.textContent = "Copy";
+    copyBtn.style.marginRight = "6px";
+    copyBtn.onclick = () => {
+      copyResultsToClipboard(panel);
+    };
+    btns.appendChild(copyBtn);
+
+    const csvBtn = document.createElement("button");
+    csvBtn.textContent = "Export CSV";
+    csvBtn.style.marginRight = "6px";
+    csvBtn.onclick = () => {
+      exportCSV(panel);
+    };
+    btns.appendChild(csvBtn);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "Close";
+    closeBtn.onclick = () => panel.remove();
+    btns.appendChild(closeBtn);
+
+    header.appendChild(btns);
+    panel.appendChild(header);
+
+    const tableWrap = document.createElement("div");
+    tableWrap.id = "grabParamsTableWrap";
+    panel.appendChild(tableWrap);
+
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function buildTable(panel, results) {
+    const wrap = panel.querySelector("#grabParamsTableWrap");
+    wrap.innerHTML = "";
+
+    const table = document.createElement("table");
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+
+    const thead = document.createElement("thead");
+    const hrow = document.createElement("tr");
+    ["Param","Score","Example","Reasons"].forEach((h, idx) => {
+      const th = document.createElement("th");
+      th.textContent = h;
+      th.style.textAlign = idx===2 ? "left" : "center";
+      th.style.padding = "6px 8px";
+      th.style.borderBottom = "1px solid rgba(0,0,0,0.08)";
+      th.style.cursor = "pointer";
+      // sort by column
+      th.onclick = () => {
+        let sorted;
+        if (h === "Score") sorted = results.sort((a,b) => b.score - a.score);
+        else if (h === "Param") sorted = results.sort((a,b) => a.name.localeCompare(b.name));
+        else sorted = results;
+        buildTable(panel, sorted);
+      };
+      hrow.appendChild(th);
     });
-    console.groupEnd();
+    thead.appendChild(hrow);
+    table.appendChild(thead);
 
-    // copy to clipboard optionally
-    if (options.copy || options.copyToClipboard) {
-      try {
-        const lines = results.map(r => `${r.name} -> ${r.exampleUrl}`);
-        navigator.clipboard.writeText(lines.join("\n")).then(() => {
-          console.info("grabParams: copied results to clipboard");
-        }, () => {
-          console.warn("grabParams: clipboard write failed (maybe insecure context). Results returned in value.");
-        });
-      } catch (e) {
-        console.warn("grabParams: unable to copy to clipboard:", e);
-      }
-    }
+    const tbody = document.createElement("tbody");
+    results.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.style.borderBottom = "1px solid rgba(0,0,0,0.04)";
 
-    return results;
-  };
-})();
+      const tdName = document.createElement("td");
+      tdName.style.padding = "6px 8px";
+      tdName.style.fontWeight = "600";
+      tdName.style.width = "28%";
+      tdName.textContent = r.name;
+      tr.appendChild(tdName);
+
+      const tdScore = document.createElement("td");
+      tdScore.style.textAlign = "center";
+      tdScore.style.padding = "6px 8px";
+      tdScore.style.width = "10%";
+      tdScore.textContent = r.score;
+      tr.appendChild(tdScore);
+
+      const tdExample = document.createElement("td");
+      tdExample.style.padding = "6px 8px";
+      tdExample.style.width = "40%";
+      const a = document.createElement("a");
+      a.href = r.exampleUrl;
+      a.textContent = r.exampleUrl;
+      a.target = "_blank";
+      a.style.color = "#0b66c3";
+      tdExample.appendChild(a);
+      tr.appendChild(tdExample);
+
+      const tdReasons = document.createElement("td");
+      tdReasons.style.padding = "6px 8px";
+      tdReasons.style.width = "22%";
+      tdReasons.textContent = r.reasons.join(", ");
+      tr.appendChild(tdReasons);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  function copyResultsToClipboard(panel) {
+    try {
+      const rows = Array.from(panel.querySelectorAll("tbody tr")).map(tr => {
+        const cols = tr.querySelector
