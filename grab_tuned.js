@@ -200,3 +200,101 @@
       a.href = url;
       a.download = "grabParams.csv";
       document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert("CSV export failed " + e); }
+  };
+  btnWrap.appendChild(csvBtn);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "Close";
+  closeBtn.onclick = () => panel.remove();
+  btnWrap.appendChild(closeBtn);
+
+  header.appendChild(btnWrap);
+  panel.appendChild(header);
+
+  const tableWrap = document.createElement("div");
+  panel.appendChild(tableWrap);
+
+  const table = document.createElement("table");
+  table.style.width = "100%";
+  table.style.borderCollapse = "collapse";
+
+  const thead = document.createElement("thead");
+  const hrow = document.createElement("tr");
+  ["Param", "Score", "Example", "Reasons"].forEach((h, idx) => {
+    const th = document.createElement("th");
+    th.textContent = h;
+    th.style.textAlign = idx === 2 ? "left" : "center";
+    th.style.padding = "6px 8px";
+    th.style.borderBottom = "1px solid rgba(0,0,0,0.08)";
+    th.style.cursor = "pointer";
+    th.onclick = () => {
+      let sorted;
+      if (h === "Score") sorted = results.sort((a,b) => b.score - a.score);
+      else if (h === "Param") sorted = results.sort((a,b) => a.name.localeCompare(b.name));
+      else sorted = results;
+      fillBody();
+    };
+    hrow.appendChild(th);
+  });
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+
+  function fillBody() {
+    tbody.innerHTML = "";
+    results.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.style.borderBottom = "1px solid rgba(0,0,0,0.04)";
+
+      const tdName = document.createElement("td");
+      tdName.style.padding = "6px 8px";
+      tdName.style.fontWeight = "600";
+      tdName.style.width = "28%";
+      tdName.textContent = r.name;
+      tr.appendChild(tdName);
+
+      const tdScore = document.createElement("td");
+      tdScore.style.textAlign = "center";
+      tdScore.style.padding = "6px 8px";
+      tdScore.style.width = "10%";
+      tdScore.textContent = r.score;
+      tr.appendChild(tdScore);
+
+      const tdExample = document.createElement("td");
+      tdExample.style.padding = "6px 8px";
+      tdExample.style.width = "40%";
+      const a = document.createElement("a");
+      a.href = r.exampleUrl;
+      a.textContent = r.exampleUrl;
+      a.target = "_blank";
+      a.style.color = "#0b66c3";
+      tdExample.appendChild(a);
+      tr.appendChild(tdExample);
+
+      const tdReasons = document.createElement("td");
+      tdReasons.style.padding = "6px 8px";
+      tdReasons.style.width = "22%";
+      tdReasons.textContent = r.reasons.join(", ");
+      tr.appendChild(tdReasons);
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  fillBody();
+  document.body.appendChild(panel);
+
+  if (!results.length) {
+    const p = document.createElement("div");
+    p.textContent = "No candidate params found with current heuristics";
+    p.style.padding = "8px";
+    tableWrap.appendChild(p);
+  }
+})();
