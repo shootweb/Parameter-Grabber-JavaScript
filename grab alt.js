@@ -1,45 +1,5 @@
 (function displayUrlParameters() {
 
-  // ─── NOISE FILTERS ────────────────────────────────────────────────────────
-  // PHILOSOPHY: Block ONLY tokens that are provably JS runtime internals with
-  // no plausible server-side meaning.
-  //
-  // Every entry here was cross-referenced against:
-  //   • gf-patterns (tomnomnom + 1ndianl33t) — the industry-standard param
-  //     wordlists for SQLi, SSRF, LFI, RCE, XSS, IDOR, SSTI, open-redirect
-  //   • PayloadsAllTheThings SSRF/SQLi/LFI param lists
-  //   • fuzzdb attack patterns
-  //
-  // Commented-out entries show what was CONSIDERED for blocking but kept live
-  // because they appear as confirmed injectable param names in the above sources.
-  //
-  // ── Confirmed injectable — NEVER block these ─────────────────────────────
-  //  SQLi  : id, select, report, role, update, query, user, name, sort, where,
-  //          search, process, row, view, table, from, sel, results, sleep, fetch,
-  //          order, keyword, column, field, delete, string, number, filter
-  //  SSRF  : url, uri, path, dest, redirect, next, continue, return, window,
-  //          data, reference, site, html, val, validate, domain, callback, host,
-  //          port, feed, to, out, open, dir, show, navigation, img, filename,
-  //          access, debug, edit, grant, test, alter, clone, create, disable,
-  //          enable, exec, execute, load, make, modify, rename, reset, shell,
-  //          toggle, adm, root, cfg, admin
-  //  LFI   : file, document, folder, pg, style, pdf, template, php_path, doc,
-  //          page, cat, action, board, date, detail, download, prefix, include,
-  //          inc, locate, show, site, type, view, content, layout, mod, conf
-  //  RCE   : daemon, upload, dir, log, ip, cli, cmd, command, ping, jump, code,
-  //          reg, do, func, arg, option, step, read, req, feature, exe, module,
-  //          payload, run, print, function
-  //  XSS   : q, s, search, lang, keyword, preview, logon, tip, title, redirect,
-  //          src, callback, host, html, data, content, text, name, input
-  //  IDOR  : id, user, account, number, no, doc, key, email, group, profile,
-  //          edit, report
-  //  SSTI  : template, preview, activity, content, redirect, id, view, name
-  //  XXE   : xml, data, entity, dtd, payload, schema, xsl, content, input
-  //  CSRF  : token, csrf, nonce, state, action, method, form
-  //  Redir : redirect, return, next, goto, url, target, continue, dest, window,
-  //          navigation, open
-  //  Debug : debug, dbg, test, trace, verbose, log, diag, dev, mode, env, cfg
-
   const BLOCKLIST = new Set([
 
     // ── JS language primitives & prototype methods ────────────────────────────
