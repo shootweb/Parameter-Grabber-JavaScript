@@ -1,64 +1,124 @@
 (function displayUrlParameters() {
 
   // ─── NOISE FILTERS ────────────────────────────────────────────────────────
-  // Common JS built-ins, framework internals, and generic tokens that are
-  // almost never injectable query/body parameters.
+  // PHILOSOPHY: Block ONLY tokens that are provably JS runtime internals with
+  // no plausible server-side meaning.
+  //
+  // Every entry here was cross-referenced against:
+  //   • gf-patterns (tomnomnom + 1ndianl33t) — the industry-standard param
+  //     wordlists for SQLi, SSRF, LFI, RCE, XSS, IDOR, SSTI, open-redirect
+  //   • PayloadsAllTheThings SSRF/SQLi/LFI param lists
+  //   • fuzzdb attack patterns
+  //
+  // Commented-out entries show what was CONSIDERED for blocking but kept live
+  // because they appear as confirmed injectable param names in the above sources.
+  //
+  // ── Confirmed injectable — NEVER block these ─────────────────────────────
+  //  SQLi  : id, select, report, role, update, query, user, name, sort, where,
+  //          search, process, row, view, table, from, sel, results, sleep, fetch,
+  //          order, keyword, column, field, delete, string, number, filter
+  //  SSRF  : url, uri, path, dest, redirect, next, continue, return, window,
+  //          data, reference, site, html, val, validate, domain, callback, host,
+  //          port, feed, to, out, open, dir, show, navigation, img, filename,
+  //          access, debug, edit, grant, test, alter, clone, create, disable,
+  //          enable, exec, execute, load, make, modify, rename, reset, shell,
+  //          toggle, adm, root, cfg, admin
+  //  LFI   : file, document, folder, pg, style, pdf, template, php_path, doc,
+  //          page, cat, action, board, date, detail, download, prefix, include,
+  //          inc, locate, show, site, type, view, content, layout, mod, conf
+  //  RCE   : daemon, upload, dir, log, ip, cli, cmd, command, ping, jump, code,
+  //          reg, do, func, arg, option, step, read, req, feature, exe, module,
+  //          payload, run, print, function
+  //  XSS   : q, s, search, lang, keyword, preview, logon, tip, title, redirect,
+  //          src, callback, host, html, data, content, text, name, input
+  //  IDOR  : id, user, account, number, no, doc, key, email, group, profile,
+  //          edit, report
+  //  SSTI  : template, preview, activity, content, redirect, id, view, name
+  //  XXE   : xml, data, entity, dtd, payload, schema, xsl, content, input
+  //  CSRF  : token, csrf, nonce, state, action, method, form
+  //  Redir : redirect, return, next, goto, url, target, continue, dest, window,
+  //          navigation, open
+  //  Debug : debug, dbg, test, trace, verbose, log, diag, dev, mode, env, cfg
+
   const BLOCKLIST = new Set([
-    // JS built-ins
-    'eval','length','name','call','apply','bind','prototype','constructor',
-    'toString','valueOf','hasOwnProperty','isPrototypeOf','then','catch',
-    'finally','return','typeof','instanceof','function','arguments','undefined',
-    'null','true','false','NaN','Infinity',
-    // DOM / browser globals
-    'document','window','console','location','navigator','history','fetch',
+
+    // ── JS language primitives & prototype methods ────────────────────────────
+    // These cannot be query parameters under any circumstances.
+    'eval','length','call','apply','bind','prototype','constructor',
+    'toString','valueOf','hasOwnProperty','isPrototypeOf',
+    'then','catch','finally','typeof','instanceof',
+    'arguments','undefined','NaN','Infinity',
+    // NOT blocked: 'name','fetch','type','key','ref','get','set','find',
+    //   'filter','map','data','state','remove','clone','includes','reduce'
+    //   — all overlap with real param names in gf-patterns
+
+    // ── DOM / browser globals ─────────────────────────────────────────────────
+    'document','window','console','navigator','history',
     'XMLHttpRequest','setTimeout','setInterval','clearTimeout','clearInterval',
-    'addEventListener','removeEventListener','querySelector','querySelectorAll',
+    'addEventListener','removeEventListener',
+    'querySelector','querySelectorAll',
     'getElementById','getElementsByClassName','getElementsByTagName',
     'createElement','appendChild','innerHTML','textContent','innerText',
-    'style','classList','dataset','getAttribute','setAttribute',
+    'classList','dataset','getAttribute','setAttribute',
     'parentNode','childNodes','firstChild','lastChild','nextSibling',
     'offsetWidth','offsetHeight','clientWidth','clientHeight',
-    'scrollTop','scrollLeft','getBoundingClientRect',
+    'scrollLeft','getBoundingClientRect',
     'dispatchEvent','preventDefault','stopPropagation',
-    // jQuery
-    'jQuery','ajax','each','extend','fn','ready','on','off','trigger',
-    'find','filter','closest','parent','children','siblings','next','prev',
-    'show','hide','toggle','addClass','removeClass','toggleClass',
-    'attr','prop','val','html','text','append','prepend','remove','empty',
-    'animate','css','width','height','offset','position','scrollTop',
-    // React / Vue / Angular internals
+    // NOT blocked: 'location','style','scrollTop','width','height' —
+    //   'style' is gf LFI pattern; 'location'/'width'/'height' used in APIs
+
+    // ── jQuery internals (method names with no server-side param meaning) ─────
+    // NOT blocked: 'ajax','find','filter','show','hide','val','html','text',
+    //   'remove','load','get','toggle','parent','next','on','off','css' —
+    //   'show','load','find','html','val','get','toggle' all in gf-patterns
+    'jQuery','each','extend','fn','ready','trigger',
+    'closest','children','siblings','prev',
+    'addClass','removeClass','toggleClass',
+    'attr','prop','append','prepend','empty',
+    'animate','offset','position',
+
+    // ── React / Vue / Angular runtime internals ───────────────────────────────
+    // NOT blocked: 'render','component','props','setState','ref','key','data',
+    //   'methods','computed','watch','created','destroyed','mounted','state' —
+    //   'state','key','data','ref' appear in real query strings
     'useState','useEffect','useRef','useMemo','useCallback','useContext',
-    'useReducer','render','component','props','state','setState','forceUpdate',
+    'useReducer','forceUpdate',
     'componentDidMount','componentWillUnmount','shouldComponentUpdate',
     'getDerivedStateFromProps','getSnapshotBeforeUpdate',
-    'ref','key','type','defaultProps','displayName','contextType',
-    'data','methods','computed','watch','mounted','created','destroyed',
+    'defaultProps','displayName','contextType',
     'ngOnInit','ngOnDestroy','ngOnChanges','ngAfterViewInit',
-    // Lodash / Underscore
-    'map','reduce','filter','forEach','find','some','every','includes',
-    'merge','assign','clone','cloneDeep','get','set','pick','omit',
-    'flatten','chunk','zip','unzip','groupBy','sortBy','orderBy',
-    'debounce','throttle','once','memoize','curry','partial',
-    // Common analytics / tracking (not injectable params)
-    'gtag','ga','fbq','_hsq','_paq','dataLayer','pushState','replaceState',
-    // Generic noise (pure UI/event internals — NOT injectable param names)
-    'init','setup','callback','handler','listener','observer','subscriber','emitter',
-    'resolve','reject','complete','done','fail',
-    'start','stop','pause','resume','reset','refresh','reload',
-    'open','close','enable','disable','validate',
-    'load','unload','resize','scroll','click','focus','blur','change',
-    'keyup','keydown','keypress','mouseup','mousedown','mousemove',
+
+    // ── Lodash / Underscore (only methods with zero param-name overlap) ───────
+    // NOT blocked: 'map','reduce','filter','find','includes','merge','assign',
+    //   'clone','get','set','pick','chunk','zip','groupBy','sortBy','orderBy',
+    //   'some','every','forEach','omit' — all overlap with real param names
+    'cloneDeep','unzip','debounce','throttle','once','memoize','curry','partial',
+    'flatten',
+
+    // ── Analytics / tag manager snippets ─────────────────────────────────────
+    'gtag','fbq','_hsq','_paq','dataLayer','pushState','replaceState',
+    // NOT blocked: 'ga' — short params like ga= appear in legitimate endpoints
+
+    // ── Pure browser event names ──────────────────────────────────────────────
+    // These are JS event strings, never HTTP param names.
+    'unload','resize','scroll','click','focus','blur',
+    'keyup','keydown','keypress',
+    'mouseup','mousedown','mousemove',
     'touchstart','touchend','touchmove',
-    'class','placeholder','asc','desc',
-    'ok','result','response','request','header','headers',
-    // NOTE: 'action','method','target','type','value','content','title',
-    // 'id','name','url','path','src','href','token','auth','user','pass',
-    // 'status','code','message','error','session','cookie','page','sort',
-    // 'order','limit','offset','index','count','format','mode','theme',
-    // 'color','size','width','height','data','config','options','settings',
-    // 'params','args','opts','get','post','put','delete','update','create',
-    // 'read','list','new','body','on','off','yes','no','true','false'
-    // ^^^ ALL removed from blocklist — these are common injectable param names
+
+    // ── JS-only flow/lifecycle words ──────────────────────────────────────────
+    // NOT blocked: 'init','setup','start','stop','open','close','enable',
+    //   'disable','validate','reset','load','change','complete','resume' —
+    //   all appear in SSRF/RCE/debug gf-patterns as param names
+    'handler','listener','observer','subscriber','emitter',
+    'resolve','reject','done','fail',
+    'pause','refresh','reload',
+
+    // ── Pure syntax / CSS tokens ──────────────────────────────────────────────
+    // NOT blocked: 'header','request','response','result','style','callback' —
+    //   'style' is LFI; others appear in REST API param names
+    'class','placeholder','asc','desc','ok','headers',
+
   ]);
 
   // Single-character params are almost always noise
