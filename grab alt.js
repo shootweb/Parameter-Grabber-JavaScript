@@ -41,23 +41,24 @@
     'debounce','throttle','once','memoize','curry','partial',
     // Common analytics / tracking (not injectable params)
     'gtag','ga','fbq','_hsq','_paq','dataLayer','pushState','replaceState',
-    // Generic noise
-    'init','setup','config','options','settings','params','args','opts',
-    'callback','handler','listener','observer','subscriber','emitter',
-    'resolve','reject','error','success','complete','done','fail',
-    'start','stop','pause','resume','reset','update','refresh','reload',
-    'open','close','show','hide','enable','disable','validate','submit',
+    // Generic noise (pure UI/event internals — NOT injectable param names)
+    'init','setup','callback','handler','listener','observer','subscriber','emitter',
+    'resolve','reject','complete','done','fail',
+    'start','stop','pause','resume','reset','refresh','reload',
+    'open','close','enable','disable','validate',
     'load','unload','resize','scroll','click','focus','blur','change',
-    'input','keyup','keydown','keypress','mouseup','mousedown','mousemove',
+    'keyup','keydown','keypress','mouseup','mousedown','mousemove',
     'touchstart','touchend','touchmove',
-    'src','href','url','path','route','link','action','method','target',
-    'class','id','type','value','content','placeholder','title','alt',
-    'width','height','size','color','style','theme','mode','format',
-    'index','count','total','limit','offset','page','size','sort','order',
-    'asc','desc','true','false','yes','no','on','off',
-    'new','delete','update','create','read','list','get','post','put',
-    'ok','status','code','message','result','response','request','body',
-    'header','headers','cookie','session','token','auth','user','pass',
+    'class','placeholder','asc','desc',
+    'ok','result','response','request','header','headers',
+    // NOTE: 'action','method','target','type','value','content','title',
+    // 'id','name','url','path','src','href','token','auth','user','pass',
+    // 'status','code','message','error','session','cookie','page','sort',
+    // 'order','limit','offset','index','count','format','mode','theme',
+    // 'color','size','width','height','data','config','options','settings',
+    // 'params','args','opts','get','post','put','delete','update','create',
+    // 'read','list','new','body','on','off','yes','no','true','false'
+    // ^^^ ALL removed from blocklist — these are common injectable param names
   ]);
 
   // Single-character params are almost always noise
