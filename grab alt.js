@@ -1,5 +1,45 @@
 (function displayUrlParameters() {
 
+  // ─── NOISE FILTERS ────────────────────────────────────────────────────────
+  // PHILOSOPHY: Block ONLY tokens that are provably JS runtime internals with
+  // no plausible server-side meaning.
+  //
+  // Every entry here was cross-referenced against:
+  //   • gf-patterns (tomnomnom + 1ndianl33t) — the industry-standard param
+  //     wordlists for SQLi, SSRF, LFI, RCE, XSS, IDOR, SSTI, open-redirect
+  //   • PayloadsAllTheThings SSRF/SQLi/LFI param lists
+  //   • fuzzdb attack patterns
+  //
+  // Commented-out entries show what was CONSIDERED for blocking but kept live
+  // because they appear as confirmed injectable param names in the above sources.
+  //
+  // ── Confirmed injectable — NEVER block these ─────────────────────────────
+  //  SQLi  : id, select, report, role, update, query, user, name, sort, where,
+  //          search, process, row, view, table, from, sel, results, sleep, fetch,
+  //          order, keyword, column, field, delete, string, number, filter
+  //  SSRF  : url, uri, path, dest, redirect, next, continue, return, window,
+  //          data, reference, site, html, val, validate, domain, callback, host,
+  //          port, feed, to, out, open, dir, show, navigation, img, filename,
+  //          access, debug, edit, grant, test, alter, clone, create, disable,
+  //          enable, exec, execute, load, make, modify, rename, reset, shell,
+  //          toggle, adm, root, cfg, admin
+  //  LFI   : file, document, folder, pg, style, pdf, template, php_path, doc,
+  //          page, cat, action, board, date, detail, download, prefix, include,
+  //          inc, locate, show, site, type, view, content, layout, mod, conf
+  //  RCE   : daemon, upload, dir, log, ip, cli, cmd, command, ping, jump, code,
+  //          reg, do, func, arg, option, step, read, req, feature, exe, module,
+  //          payload, run, print, function
+  //  XSS   : q, s, search, lang, keyword, preview, logon, tip, title, redirect,
+  //          src, callback, host, html, data, content, text, name, input
+  //  IDOR  : id, user, account, number, no, doc, key, email, group, profile,
+  //          edit, report
+  //  SSTI  : template, preview, activity, content, redirect, id, view, name
+  //  XXE   : xml, data, entity, dtd, payload, schema, xsl, content, input
+  //  CSRF  : token, csrf, nonce, state, action, method, form
+  //  Redir : redirect, return, next, goto, url, target, continue, dest, window,
+  //          navigation, open
+  //  Debug : debug, dbg, test, trace, verbose, log, diag, dev, mode, env, cfg
+
   const BLOCKLIST = new Set([
 
     // ── JS language primitives & prototype methods ────────────────────────────
@@ -103,32 +143,36 @@
     paramMap.get(decoded).add(source);
   }
 
-  // ─── COLLECTION SOURCES ───────────────────────────────────────────────────
+  // ─── COLLECTION SOURCES (DOM only) ───────────────────────────────────────
 
   // 1. Current URL query string
   const urlParams = new URLSearchParams(window.location.search);
   for (const [key] of urlParams.entries()) addParam(key, 'url-query');
 
-  // 2. URL fragment (hash) if it contains params
+  // 2. URL fragment/hash (common in SPAs)
   if (window.location.hash.includes('=')) {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#\/?/, ''));
     for (const [key] of hashParams.entries()) addParam(key, 'url-hash');
   }
 
-  // 3. Form elements (visible + hidden)
+  // 3. Form fields — name attributes on all input/textarea/select (inc. hidden)
+  // Also collect data-* attributes across all elements, as frameworks commonly
+  // use them to pass param names to JS handlers (e.g. data-param, data-key).
   document.querySelectorAll('input, textarea, select').forEach(el => {
     const n = el.getAttribute('name');
-    if (n) addParam(n, `form[${el.tagName.toLowerCase()}]`);
-    // Also grab data-* attributes that look like param names
+    if (n) addParam(n, `form[${el.type || el.tagName.toLowerCase()}]`);
+  });
+
+  document.querySelectorAll('*').forEach(el => {
     for (const attr of el.attributes) {
       if (attr.name.startsWith('data-') && attr.value) {
-        const k = attr.name.replace(/^data-/, '');
+        const k = attr.name.slice(5); // strip 'data-'
         addParam(k, 'data-attr');
       }
     }
   });
 
-  // 4. All anchor href query params
+  // 4. Anchor href query params
   document.querySelectorAll('a[href]').forEach(link => {
     try {
       const parsed = new URL(link.href, location.href);
@@ -136,74 +180,12 @@
     } catch {}
   });
 
-  // 5. All action attributes on forms
+  // 5. Form action query params
   document.querySelectorAll('form[action]').forEach(form => {
     try {
       const parsed = new URL(form.action, location.href);
       new URLSearchParams(parsed.search).forEach((_, key) => addParam(key, 'form-action'));
     } catch {}
-  });
-
-  // 6. Meta tags (name / property / content patterns)
-  document.querySelectorAll('meta[name], meta[property]').forEach(meta => {
-    const k = meta.getAttribute('name') || meta.getAttribute('property');
-    if (k) addParam(k, 'meta-tag');
-  });
-
-  // 7. JSON-LD structured data — keys that look like URL params
-  document.querySelectorAll('script[type="application/ld+json"]').forEach(s => {
-    try {
-      const obj = JSON.parse(s.textContent);
-      function walkJson(o, depth = 0) {
-        if (depth > 4 || !o || typeof o !== 'object') return;
-        for (const key of Object.keys(o)) {
-          addParam(key, 'json-ld');
-          walkJson(o[key], depth + 1);
-        }
-      }
-      walkJson(obj);
-    } catch {}
-  });
-
-  // 8. localStorage / sessionStorage keys
-  try {
-    for (let i = 0; i < localStorage.length; i++) addParam(localStorage.key(i), 'localStorage');
-  } catch {}
-  try {
-    for (let i = 0; i < sessionStorage.length; i++) addParam(sessionStorage.key(i), 'sessionStorage');
-  } catch {}
-
-  // 9. Regex-based extraction from inline & external scripts
-  const URL_PARAM_RE   = /[?&]([a-zA-Z][a-zA-Z0-9_]{1,40})=/g;
-  const FETCH_PARAM_RE = /["'`]([a-zA-Z][a-zA-Z0-9_]{1,40})["'`]\s*:/g; // JSON-body keys
-  const NAMED_ARG_RE   = /\b([a-zA-Z][a-zA-Z0-9_]{1,40})\s*=/g;          // named args in strings
-
-  function mineJs(content, sourceLabel) {
-    let m;
-    URL_PARAM_RE.lastIndex = 0;
-    while ((m = URL_PARAM_RE.exec(content)) !== null) addParam(m[1], sourceLabel + ':url-pattern');
-    FETCH_PARAM_RE.lastIndex = 0;
-    while ((m = FETCH_PARAM_RE.exec(content)) !== null) addParam(m[1], sourceLabel + ':json-key');
-    NAMED_ARG_RE.lastIndex = 0;
-    while ((m = NAMED_ARG_RE.exec(content)) !== null) addParam(m[1], sourceLabel + ':named-arg');
-  }
-
-  // Inline scripts
-  document.querySelectorAll('script:not([src])').forEach((s, i) => {
-    mineJs(s.textContent || '', `inline-script[${i}]`);
-  });
-
-  // External scripts (async — list updates when they resolve)
-  const externalFetches = [];
-  document.querySelectorAll('script[src]').forEach(s => {
-    const p = fetch(s.src, { method: 'GET', mode: 'cors' })
-      .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-      .then(content => {
-        mineJs(content, `ext-script[${new URL(s.src, location.href).pathname.split('/').pop()}]`);
-        renderList();
-      })
-      .catch(() => {});
-    externalFetches.push(p);
   });
 
   // ─── UI ───────────────────────────────────────────────────────────────────
@@ -264,7 +246,7 @@
   dot.style.color = COLORS.accent;
 
   const titleEl = document.createElement('span');
-  titleEl.textContent = 'ParamRecon';
+  titleEl.textContent = 'ParamRecon · DOM';
   titleEl.style.fontWeight = 'bold';
   titleEl.style.color = COLORS.accent;
   titleEl.style.fontSize = '13px';
